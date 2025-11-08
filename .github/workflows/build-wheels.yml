@@ -16,7 +16,7 @@ env:
   SCCACHE_GHA_ENABLED: "true"
   RUSTC_WRAPPER: "sccache"
   # V8 TLS 模型修复：使用 global-dynamic 而非 initial-exec
-  GN_ARGS: 'extra_cflags=["-DV8_TLS_MODEL=\\"global-dynamic\\"","-fPIC"] is_clang=true'
+  GN_ARGS: 'extra_cflags=["-DV8_TLS_MODEL=\"global-dynamic\"","-fPIC"] is_clang=true'
 
 jobs:
   # Linux 构建 - 从源码编译 V8
@@ -125,7 +125,7 @@ jobs:
 
             # 设置 V8 编译参数
             export V8_FROM_SOURCE=1
-            export GN_ARGS='extra_cflags=["-DV8_TLS_MODEL=\\"global-dynamic\\"","-fPIC"] is_clang=true'
+            export GN_ARGS='extra_cflags=["-DV8_TLS_MODEL=\"global-dynamic\"","-fPIC"] is_clang=true'
             export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
             echo "=== V8 Build Configuration ==="
@@ -133,7 +133,7 @@ jobs:
             echo "GN_ARGS=$GN_ARGS"
         env:
           V8_FROM_SOURCE: "1"
-          GN_ARGS: 'extra_cflags=["-DV8_TLS_MODEL=\\"global-dynamic\\"","-fPIC"] is_clang=true'
+          GN_ARGS: 'extra_cflags=["-DV8_TLS_MODEL=\"global-dynamic\"","-fPIC"] is_clang=true'
           RUSTFLAGS: "-C relocation-model=pic"
 
       - name: List built wheels
