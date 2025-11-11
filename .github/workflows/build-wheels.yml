@@ -19,7 +19,7 @@ jobs:
   # macOS 构建
   build_wheels_macos:
     name: Build macOS universal wheels
-    runs-on: macos-13
+    runs-on: macos-14
     strategy:
       matrix:
         python-version: [ '3.11' ]
