@@ -447,8 +447,16 @@ impl Context {
                             *count += 1;
                             return Ok(result);
                         }
+
+                        // ⚠️ 检查是否是 terminate_execution 错误
+                        let error_msg = format!("{}", format_error(e.into()));
+                        if error_msg.contains("execution terminated") {
+                            // 恢复 isolate 状态，允许后续执行
+                            runtime.v8_isolate().cancel_terminate_execution();
+                        }
+
                         // 其他错误 - 格式化后返回
-                        return Err(anyhow!("{}", format_error(e.into())));
+                        return Err(anyhow!("{}", error_msg));
                     }
                     Ok(result_handle) => {
                         // 正常执行，leak handle
@@ -472,8 +480,16 @@ impl Context {
                         *count += 1;
                         return Ok(result);
                     }
+
+                    // ⚠️ 检查是否是 terminate_execution 错误
+                    let error_msg = format!("{}", format_error(e.into()));
+                    if error_msg.contains("execution terminated") {
+                        // 恢复 isolate 状态，允许后续执行
+                        runtime.v8_isolate().cancel_terminate_execution();
+                    }
+
                     // 其他错误 - 格式化后返回
-                    return Err(anyhow!("{}", format_error(e.into())));
+                    return Err(anyhow!("{}", error_msg));
                 }
 
                 // 检查是否设置了 early return 标志（即使 event loop 正常完成）
@@ -545,7 +561,15 @@ impl Context {
                         *count += 1;
                         return Ok(result);
                     }
-                    return Err(anyhow!("{}", format_error(e.into())));
+
+                    // ⚠️ 检查是否是 terminate_execution 错误
+                    let error_msg = format!("{}", format_error(e.into()));
+                    if error_msg.contains("execution terminated") {
+                        // 恢复 isolate 状态，允许后续执行
+                        runtime.v8_isolate().cancel_terminate_execution();
+                    }
+
+                    return Err(anyhow!("{}", error_msg));
                 }
                 Ok(result_handle) => {
                     std::mem::forget(result_handle);

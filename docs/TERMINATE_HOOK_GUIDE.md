@@ -243,12 +243,35 @@ $terminate({ key: "value" });
 - `str`: 如果有数据，返回 JSON 字符串
 - `None`: 如果没有数据
 
+**重要说明：**
+- ✅ **自动清空：** 每次 `evaluate()`、`call()`、`eval()` 执行前会**自动清空** hook 数据
+- ✅ 这意味着每次执行都有干净的状态，不会读到上一次的旧值
+- ✅ `get_hook_data()` 可以多次调用，返回相同的值（不会清空）
+- ⚠️ 如果需要保留上一次的数据，必须在下一次执行前先调用 `get_hook_data()` 读取
+
 **示例：**
 ```python
-hook_data = ctx.get_hook_data()
-if hook_data:
-    data = json.loads(hook_data)
-    print(data)
+ctx = never_jscore.Context()
+
+# 第一次执行
+try:
+    ctx.evaluate('$terminate({ value: 1 });')
+except:
+    pass
+
+data1 = ctx.get_hook_data()  # {"value": 1}
+data1_again = ctx.get_hook_data()  # {"value": 1} - 可以多次读取
+
+# ⚠️ 第二次执行会自动清空之前的数据
+try:
+    ctx.evaluate('$terminate({ value: 2 });')
+except:
+    pass
+
+data2 = ctx.get_hook_data()  # {"value": 2} - 新数据
+
+# ❌ 如果想保留第一次的数据，应该这样：
+# saved_data = ctx.get_hook_data()  # 在第二次执行前保存
 ```
 
 #### `Context.clear_hook_data() -> None`
@@ -273,19 +296,34 @@ data = ctx.get_hook_data()  # 获取新数据
 
 ## 最佳实践
 
-### 1. 数据清理
+### 1. 自动清空机制（v2.4.3+）
 
-始终在开始新的拦截前清空数据：
+✅ **好消息：** 从 v2.4.3 开始，每次 `evaluate()`、`call()`、`eval()` 执行前会**自动清空** hook 数据！
+
+**这意味着：**
+- ✅ 不需要手动调用 `clear_hook_data()`
+- ✅ 每次执行都有干净的状态
+- ✅ 不会读到上一次的旧值
 
 ```python
-ctx.clear_hook_data()  # ✅ 清空旧数据
+ctx = never_jscore.Context()
 
+# 第一次拦截
 try:
-    ctx.evaluate(target_code)
+    ctx.evaluate('$terminate({ n: 1 });')
 except:
     pass
+data1 = ctx.get_hook_data()  # {"n": 1}
 
-hook_data = ctx.get_hook_data()
+# 第二次拦截 - 自动清空了第一次的数据
+try:
+    ctx.evaluate('$terminate({ n: 2 });')
+except:
+    pass
+data2 = ctx.get_hook_data()  # {"n": 2} ✅ 正确
+
+# ⚠️ 如果需要保留第一次的数据：
+# saved = ctx.get_hook_data()  # 在第二次执行前保存
 ```
 
 ### 2. 错误处理
@@ -314,14 +352,12 @@ ctx1 = never_jscore.Context()
 ctx2 = never_jscore.Context()
 
 # Context 1 保存数据
-ctx1.clear_hook_data()
 try:
     ctx1.evaluate('$terminate({ ctx: 1 });')
 except:
     pass
 
 # Context 2 保存数据（会覆盖 Context 1 的数据！）
-ctx2.clear_hook_data()  # ✅ 必须清空
 try:
     ctx2.evaluate('$terminate({ ctx: 2 });')
 except:

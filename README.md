@@ -157,7 +157,7 @@ print(f"拦截到的加密数据: {encrypted_data['encrypted']}")
 import json
 
 ctx = never_jscore.Context()
-ctx.clear_hook_data()  # 清空之前的数据
+ctx.clear_hook_data()  # 清空之前的数据（可选，会自动清空）
 
 # Hook XMLHttpRequest.send
 ctx.compile("""
@@ -192,6 +192,9 @@ hook_data = ctx.get_hook_data()
 if hook_data:
     data = json.loads(hook_data)
     print(f"拦截到的加密数据: {data['encrypted']}")
+
+# ⚠️ 注意：每次 evaluate()/call() 前会自动清空 hook 数据
+# 如果需要保留上一次的数据，必须在下一次执行前先读取
 ```
 
 **两种模式对比：**

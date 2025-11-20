@@ -283,6 +283,11 @@ class Context:
         当 JavaScript 调用 __saveAndTerminate__() 或 $terminate() 时，
         数据会保存到全局存储中。使用此方法可以在 JS 被终止后获取保存的数据。
 
+        ⚠️ 重要特性：
+        - Hook 数据会一直保留，直到被手动清空或被新的 $terminate() 覆盖
+        - 可以多次调用 get_hook_data() 读取同一个数据
+        - 如果需要执行新的 hook，建议先调用 clear_hook_data() 清空旧数据
+
         Returns:
             Optional[str]: 如果有保存的数据则返回 JSON 字符串，否则返回 None
 
@@ -292,35 +297,22 @@ class Context:
             >>>
             >>> ctx = never_jscore.Context()
             >>>
-            >>> # Hook XMLHttpRequest.send
-            >>> hook_code = '''
-            ...     XMLHttpRequest.prototype.send = function(body) {
-            ...         __saveAndTerminate__({
-            ...             url: this._url,
-            ...             body: body,
-            ...             timestamp: Date.now()
-            ...         });
-            ...     };
-            ... '''
-            >>> ctx.compile(hook_code)
-            >>>
-            >>> # 执行会触发 Hook 的代码
+            >>> # 第一次拦截
             >>> try:
-            ...     ctx.evaluate('''
-            ...         const xhr = new XMLHttpRequest();
-            ...         xhr.open('POST', '/api/login');
-            ...         xhr.send('{"user":"admin"}');  // 触发 Hook
-            ...     ''')
-            ... except Exception as e:
-            ...     # JS 被 terminate，会抛出异常
-            ...     print(f"JS terminated: {e}")
+            ...     ctx.evaluate('$terminate({ n: 1 });')
+            ... except:
+            ...     pass
+            >>> data1 = ctx.get_hook_data()  # {"n": 1}
             >>>
-            >>> # 获取 Hook 拦截的数据
-            >>> hook_data = ctx.get_hook_data()
-            >>> if hook_data:
-            ...     data = json.loads(hook_data)
-            ...     print(f"Intercepted URL: {data['url']}")
-            ...     print(f"Intercepted Body: {data['body']}")
+            >>> # 第二次拦截 - 自动清空了第一次的数据
+            >>> try:
+            ...     ctx.evaluate('$terminate({ n: 2 });')
+            ... except:
+            ...     pass
+            >>> data2 = ctx.get_hook_data()  # {"n": 2} ✅ 正确
+            >>>
+            >>> # 如果需要保留第一次的数据，必须在第二次执行前保存：
+            >>> # saved = ctx.get_hook_data()  # 在下一次 evaluate() 前保存
         """
         ...
 
@@ -328,22 +320,27 @@ class Context:
         """
         清空保存的 Hook 数据
 
-        在开始新的 JS 执行前调用，避免读取到旧数据。
+        建议在执行新的 hook 之前调用此方法，以确保不会读到旧的 hook 数据。
 
         Example:
             >>> ctx = never_jscore.Context()
             >>>
-            >>> # 清空之前的数据
-            >>> ctx.clear_hook_data()
-            >>>
-            >>> # 执行新的 Hook 拦截
+            >>> # 第一次 hook
             >>> try:
-            ...     ctx.evaluate('...')
+            ...     ctx.evaluate('$terminate({ n: 1 });')
             ... except:
             ...     pass
+            >>> data1 = ctx.get_hook_data()  # {"n": 1}
             >>>
-            >>> # 获取新的数据
-            >>> data = ctx.get_hook_data()
+            >>> # 清空旧数据，准备下一次 hook
+            >>> ctx.clear_hook_data()
+            >>>
+            >>> # 第二次 hook
+            >>> try:
+            ...     ctx.evaluate('$terminate({ n: 2 });')
+            ... except:
+            ...     pass
+            >>> data2 = ctx.get_hook_data()  # {"n": 2}
         """
         ...
 
