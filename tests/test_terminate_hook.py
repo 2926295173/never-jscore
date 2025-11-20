@@ -323,10 +323,10 @@ def run_all_tests():
     tests = [
         ("基本功能", test_basic_save_and_terminate),
         ("Hook XHR", test_hook_xhr_with_terminate),
-        # ("绕过 try-catch", test_bypass_try_catch),
-        # ("简短别名", test_short_alias),
-        # ("对比 $return", test_comparison_with_return),
-        # ("多 Context 隔离", test_multiple_contexts),
+        ("绕过 try-catch", test_bypass_try_catch),
+        ("简短别名", test_short_alias),
+        ("对比 $return", test_comparison_with_return),
+        ("多 Context 隔离", test_multiple_contexts),
     ]
 
     passed = 0
@@ -351,6 +351,7 @@ def run_all_tests():
         print("\n🎉 所有测试通过!")
     else:
         print(f"\n⚠️ 有 {failed} 个测试失败")
+
 
     return failed == 0
 

@@ -7,5 +7,5 @@ with full Promise/async support.
 
 from .never_jscore import Context
 
-__version__ = "2.4.3"
+__version__ = "2.4.4"
 __all__ = ["Context"]
