@@ -4,6 +4,14 @@
 展示如何监控内存使用、优化性能和调试问题
 """
 
+import sys
+import os
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import never_jscore
 import time
 import gc
@@ -278,10 +286,19 @@ def test_heap_statistics_monitoring():
     """实战：监控批量处理的内存使用"""
     ctx = never_jscore.Context()
     ctx.compile("""
+        function simpleHash(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                hash = hash & hash;
+            }
+            return Math.abs(hash).toString(16).padStart(8, '0');
+        }
+
         function heavyComputation(n) {
             const temp = [];
             for (let i = 0; i < n; i++) {
-                temp.push(sha256(String(i)));
+                temp.push(simpleHash(String(i)));
             }
             return temp.length;
         }
@@ -393,10 +410,19 @@ def test_memory_efficient_large_dataset():
         """处理单个数据块"""
         ctx = never_jscore.Context()
         ctx.compile("""
+            function simpleHash(str) {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                    hash = hash & hash;
+                }
+                return Math.abs(hash).toString(16).padStart(8, '0');
+            }
+
             function processData(start, count) {
                 const results = [];
                 for (let i = start; i < start + count; i++) {
-                    results.push(sha256(String(i)));
+                    results.push(simpleHash(String(i)));
                 }
                 return results.length;
             }

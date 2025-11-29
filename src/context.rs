@@ -6,27 +6,26 @@ use pyo3::types::{PyDict, PyList};
 use serde_json::Value as JsonValue;
 use std::cell::RefCell;
 use std::rc::Rc;
-use rand::SeedableRng;
+
 
 use crate::convert::{json_to_python, python_to_json};
 use crate::ops;
 use crate::runtime::run_with_tokio;
 use crate::storage::ResultStorage;
 
-// ============================================
-// 权限容器 - Web扩展需要
-// ============================================
+#[cfg(feature = "deno_web_api")]
+use crate::permissions::create_allow_all_permissions;
 
-/// 权限容器，用于控制Web API的权限
-///
-/// 在JS逆向场景中，我们允许所有权限
-struct PermissionsContainer;
-
-// impl deno_web::TimersPermission for PermissionsContainer {
-//     fn allow_hrtime(&mut self) -> bool {
-//         true  // 允许高精度时间
-//     }
-// }
+#[cfg(feature = "deno_web_api")]
+deno_core::extension!(
+    deno_web_init,
+    deps = [deno_web, deno_webidl],
+    esm_entry_point = "ext:deno_web_init/deno_web_init.js",
+    esm = [
+        dir "src",
+        "deno_web_init.js",
+    ],
+);
 
 /// JavaScript 执行上下文
 ///
@@ -46,12 +45,9 @@ pub struct Context {
     exec_count: RefCell<usize>,
     extensions_loaded: bool,
     logging_enabled: bool,
-    polyfill_loaded: RefCell<bool>,  // Track if polyfill has been loaded
-    random_seed: Option<u32>,  // Store seed for deferred initialization
+    random_seed: Option<u32>,  // Store seed for deferred initialization (for deno_crypto)
 }
 
-// JavaScript polyfill 代码
-const JS_POLYFILL: &str = include_str!("dddd_js/js_polyfill.js");
 
 /// 格式化 JavaScript 错误为人类可读的字符串
 ///
@@ -180,6 +176,36 @@ fn format_error(error: anyhow::Error) -> String {
     }
 }
 
+/// RAII guard for V8 isolate enter/exit
+///
+/// This guard ensures that isolate.exit() is always called, even if a panic occurs.
+/// This prevents the "Disposing the isolate that is entered" error and resource leaks.
+///
+/// # Usage
+/// ```rust
+/// let _guard = IsolateGuard::new(&self);
+/// // ... V8 operations
+/// // Guard automatically calls exit() on drop
+/// ```
+struct IsolateGuard<'a> {
+    context: &'a Context,
+}
+
+impl<'a> IsolateGuard<'a> {
+    /// Create a new guard and enter the isolate
+    fn new(context: &'a Context) -> Self {
+        context.enter_isolate();
+        Self { context }
+    }
+}
+
+impl<'a> Drop for IsolateGuard<'a> {
+    /// Automatically exit the isolate when the guard goes out of scope
+    fn drop(&mut self) {
+        self.context.exit_isolate();
+    }
+}
+
 impl Context {
     /// 创建新的 Context
     ///
@@ -187,33 +213,65 @@ impl Context {
     /// * `enable_extensions` - 是否启用扩展（crypto, encoding 等）
     /// * `enable_logging` - 是否启用操作日志输出
     /// * `random_seed` - 随机数种子（可选）。如果提供，所有随机数 API 将使用固定种子
-    pub fn new(enable_extensions: bool, enable_logging: bool, random_seed: Option<u32>) -> PyResult<Self> {
+    /// * `enable_node_compat` - 是否启用 Node.js 兼容层（require() 支持）
+    pub fn new(
+        enable_extensions: bool,
+        enable_logging: bool,
+        random_seed: Option<u32>,
+        enable_node_compat: bool,
+    ) -> PyResult<Self> {
         let storage = Rc::new(ResultStorage::new());
 
-        let mut extensions = vec![
-            // Custom ops for result storage
-            ops::pyexecjs_ext::init(storage.clone()),
-        ];
+        // Use the new modular extension system
+        let mut ext_options = crate::ext::ExtensionOptions::new(storage.clone())
+            .with_logging(enable_logging)
+            .with_extensions(enable_extensions);
 
-        // 根据参数决定是否加载扩展
-        if enable_extensions {
-            extensions.push(crate::random_ops::random_ops::init());  // Random seed control (always loaded with extensions)
-            extensions.push(crate::crypto_ops::crypto_ops::init());
-            extensions.push(crate::encoding_ops::encoding_ops::init());
-            // Real async timers (using channel + thread to avoid Tokio reactor issues)
-            extensions.push(crate::timer_real_ops::timer_real_ops::init());
-            extensions.push(crate::worker_ops::worker_ops::init());
-            extensions.push(crate::fs_ops::fs_ops::init());
-            extensions.push(crate::fetch_ops::fetch_ops::init());
-            extensions.push(crate::performance_ops::performance_ops::init());
+        // Apply random seed if provided
+        ext_options = if let Some(seed) = random_seed {
+            ext_options.with_random_seed(seed as u64)
+        } else {
+            ext_options
+        };
 
-            // 新增: 浏览器环境 API
-            extensions.push(crate::ops::web_storage::web_storage_ops::init());
-            extensions.push(crate::ops::browser_env::browser_env_ops::init());
+        // Apply Node.js compatibility if requested
+        #[cfg(feature = "node_compat")]
+        if enable_node_compat {
+            ext_options = ext_options.with_node_compat(
+                crate::node_compat::NodeCompatOptions::default()
+            );
         }
+
+        // Load extensions based on configuration
+        let extensions = crate::ext::all_extensions(ext_options, false /* is_snapshot */);
+
+        // Configure extension transpiler for TypeScript (node_compat feature)
+        #[cfg(feature = "node_compat")]
+        let extension_transpiler: Option<std::rc::Rc<dyn Fn(deno_core::ModuleName, deno_core::ModuleCodeString) -> Result<(deno_core::ModuleCodeString, Option<deno_core::SourceMapData>), deno_error::JsErrorBox>>> =
+            if enable_node_compat {
+                Some(std::rc::Rc::new(crate::transpile::maybe_transpile_source))
+            } else {
+                None
+            };
+
+        #[cfg(not(feature = "node_compat"))]
+        let extension_transpiler: Option<std::rc::Rc<dyn Fn(deno_core::ModuleName, deno_core::ModuleCodeString) -> Result<(deno_core::ModuleCodeString, Option<deno_core::SourceMapData>), deno_error::JsErrorBox>>> = None;
+
+        // Create module loader for ESM support
+        #[cfg(feature = "node_compat")]
+        let module_loader: std::rc::Rc<dyn deno_core::ModuleLoader> = if enable_node_compat {
+            crate::module_loader::FileModuleLoader::new().into_rc()
+        } else {
+            std::rc::Rc::new(deno_core::NoopModuleLoader)
+        };
+
+        #[cfg(not(feature = "node_compat"))]
+        let module_loader: std::rc::Rc<dyn deno_core::ModuleLoader> = std::rc::Rc::new(deno_core::NoopModuleLoader);
 
         let mut runtime = JsRuntime::new(RuntimeOptions {
             extensions,
+            extension_transpiler,
+            module_loader: Some(module_loader),
             ..Default::default()
         });
 
@@ -223,6 +281,12 @@ impl Context {
             let op_state = runtime.op_state();
             let mut op_state_mut = op_state.borrow_mut();
             op_state_mut.put(isolate_handle);
+
+            // 初始化 deno_web 需要的权限系统
+            #[cfg(feature = "deno_web_api")]
+            {
+                op_state_mut.put(create_allow_all_permissions());
+            }
         }
 
         // DON'T access OpState or Isolate during construction
@@ -236,57 +300,52 @@ impl Context {
             exec_count: RefCell::new(0),
             extensions_loaded: enable_extensions,
             logging_enabled: enable_logging,
-            polyfill_loaded: RefCell::new(false),
             random_seed,
         })
     }
 
-    /// Load polyfill on first execution
-    fn ensure_polyfill_loaded(&self) -> Result<()> {
-        if !self.extensions_loaded {
-            return Ok(());
-        }
+    /// Load JavaScript extension initialization scripts
+    ///
+    /// This method loads all JS-based extensions (core, hook, random, XHR, protection)
+    /// Should only be called once on first execution
+    ///
+    /// # DRY Improvement
+    /// This eliminates code duplication between exec_script() and execute_js()
+    fn load_js_extensions(&self, runtime: &mut JsRuntime) -> Result<()> {
+        // Load core extension functions ($return, $exit, etc.)
+        let core_init = crate::ext::core::get_init_js();
+        runtime
+            .execute_script("<init_core>", core_init.to_string())
+            .map_err(|e| anyhow!("Failed to load core extension: {}", format_error(e.into())))?;
 
-        if *self.polyfill_loaded.borrow() {
-            return Ok(());
-        }
+        // Load hook extension functions ($terminate, etc.)
+        let hook_init = crate::ext::hook::get_init_js();
+        runtime
+            .execute_script("<init_hook>", hook_init.to_string())
+            .map_err(|e| anyhow!("Failed to load hook extension: {}", format_error(e.into())))?;
 
-        // CRITICAL: Re-enter isolate before accessing runtime
-        self.enter_isolate();
+        // Load random extension (override Math.random() with seeded RNG)
+        let random_init = crate::ext::random::get_init_js();
+        runtime
+            .execute_script("<init_random>", random_init.to_string())
+            .map_err(|e| anyhow!("Failed to load random extension: {}", format_error(e.into())))?;
 
-        let mut runtime = self.runtime.borrow_mut();
+        // Load XMLHttpRequest polyfill (fetch-based implementation)
+        let xhr_init = crate::ext::xhr::get_init_js();
+        runtime
+            .execute_script("<init_xhr>", xhr_init.to_string())
+            .map_err(|e| anyhow!("Failed to load XHR extension: {}", format_error(e.into())))?;
 
-        // Set random seed if provided
-        if let Some(seed) = self.random_seed {
-            let op_state = runtime.op_state();
-            let mut op_state = op_state.borrow_mut();
-            // RngState is already initialized by the extension, just update it
-            if let Some(rng_state) = op_state.try_borrow_mut::<crate::random_state::RngState>() {
-                rng_state.seed = Some(seed as u64);
-                rng_state.seeded_rng = Some(rand::rngs::StdRng::seed_from_u64(seed as u64));
-            }
-        }
-
-        // Set logging flag
-        let logging_flag = if self.logging_enabled { "true" } else { "false" };
-        let logging_setup = format!("globalThis.__NEVER_JSCORE_LOGGING__ = {};", logging_flag);
-
-        let _log_result = runtime
-            .execute_script("<logging_setup>", logging_setup)
-            .map_err(|e| anyhow!("Failed to setup logging: {:?}", e))?;
-
-        let _result = runtime
-            .execute_script("<polyfill>", JS_POLYFILL.to_string())
-            .map_err(|e| anyhow!("Failed to load polyfill: {:?}", e))?;
-
-        *self.polyfill_loaded.borrow_mut() = true;
-
-        // Exit isolate after polyfill loading
-        self.exit_isolate();
+        // Load browser protection (hide Deno, make functions show [native code])
+        let protection_init = crate::ext::protection::get_init_js();
+        runtime
+            .execute_script("<init_protection>", protection_init.to_string())
+            .map_err(|e| anyhow!("Failed to load protection extension: {}", format_error(e.into())))?;
 
         Ok(())
     }
 
+    /// Load polyfill on first execution
     /// 重新进入此 Context 的 Isolate
     ///
     /// 当存在多个 Context 实例时，V8 的 thread-local "current isolate" 可能指向错误的 isolate。
@@ -336,14 +395,16 @@ impl Context {
     ///
     /// 这个方法会直接执行代码并将定义的函数/变量加入全局作用域
     fn exec_script(&self, code: &str) -> Result<()> {
-        // Ensure polyfill is loaded before first execution
-        self.ensure_polyfill_loaded()?;
-
-        // CRITICAL: Re-enter isolate to ensure it's current
-        // This fixes the multi-Context issue where creating ctx2 breaks ctx1
-        self.enter_isolate();
+        // RAII guard ensures isolate.exit() is always called, even on panic
+        let _guard = IsolateGuard::new(self);
 
         let mut runtime = self.runtime.borrow_mut();
+
+        // Load extension init scripts on first execution
+        let is_first_exec = *self.exec_count.borrow() == 0;
+        if is_first_exec && self.extensions_loaded {
+            self.load_js_extensions(&mut runtime)?;
+        }
 
         // execute_script returns a v8::Global<v8::Value>
         // We let it drop immediately
@@ -364,19 +425,20 @@ impl Context {
             rt.run_event_loop(Default::default()).await.ok();
         });
 
-        // Exit isolate after operations complete
-        self.exit_isolate();
-
         // 更新执行计数
         let mut count = self.exec_count.borrow_mut();
         *count += 1;
 
-        // 每 100 次执行后提示 GC
+        // Trigger low memory notification every 100 executions to encourage GC
         if *count % 100 == 0 {
-            std::hint::black_box(());
+            // Request actual GC instead of meaningless black_box
+            drop(count);
+            let mut rt = self.runtime.borrow_mut();
+            rt.v8_isolate().low_memory_notification();
         }
 
         Ok(())
+        // RAII guard exits isolate here automatically
     }
 
     /// 执行 JavaScript 代码并返回结果
@@ -389,11 +451,16 @@ impl Context {
     /// - 该错误会携带返回值并中断 JS 执行
     /// - Rust 侧通过 downcast 检测并提取返回值
     fn execute_js(&self, code: &str, auto_await: bool) -> Result<String> {
-        // Ensure polyfill is loaded before first execution
-        self.ensure_polyfill_loaded()?;
+        // RAII guard ensures isolate.exit() is always called
+        let _guard = IsolateGuard::new(self);
 
-        // CRITICAL: Re-enter isolate
-        self.enter_isolate();
+        // Load extension init scripts on first execution
+        let is_first_exec = *self.exec_count.borrow() == 0;
+        if is_first_exec && self.extensions_loaded {
+            let mut runtime = self.runtime.borrow_mut();
+            self.load_js_extensions(&mut runtime)?;
+            drop(runtime); // Explicitly drop borrow
+        }
 
         self.result_storage.clear();
 
@@ -514,9 +581,8 @@ impl Context {
                 Ok(result)
             });
 
-            // Exit isolate after async operations complete
-            self.exit_isolate();
             result
+            // RAII guard exits isolate here
         } else {
             // 同步模式：不等待 Promise
             let mut runtime = self.runtime.borrow_mut();
@@ -585,22 +651,18 @@ impl Context {
             let mut count = self.exec_count.borrow_mut();
             *count += 1;
 
-            // Exit isolate after sync operations complete
-            self.exit_isolate();
-
             Ok(result)
+            // RAII guard exits isolate here
         }
     }
 
 
     /// 请求垃圾回收
     fn request_gc(&self) -> Result<()> {
-        self.enter_isolate();
+        let _guard = IsolateGuard::new(self);
         let mut runtime = self.runtime.borrow_mut();
         let _ =
             runtime.execute_script("<gc_hint>", "if (typeof gc === 'function') { gc(); } null;");
-        drop(runtime);
-        self.exit_isolate();
         Ok(())
     }
 
@@ -608,7 +670,7 @@ impl Context {
     ///
     /// 返回当前 JavaScript 运行时的内存使用情况，包括总堆大小、已用大小等详细指标
     fn get_heap_stats(&self) -> Result<std::collections::HashMap<String, usize>> {
-        self.enter_isolate();
+        let _guard = IsolateGuard::new(self);
         let mut runtime = self.runtime.borrow_mut();
 
         // 直接访问 V8 isolate 并获取堆统计信息
@@ -627,9 +689,6 @@ impl Context {
         stats.insert("peak_malloced_memory".to_string(), heap_stats.peak_malloced_memory());
         stats.insert("number_of_native_contexts".to_string(), heap_stats.number_of_native_contexts());
         stats.insert("number_of_detached_contexts".to_string(), heap_stats.number_of_detached_contexts());
-
-        drop(runtime);
-        self.exit_isolate();
 
         Ok(stats)
     }
@@ -691,10 +750,15 @@ impl Context {
     ///     r3 = ctx_seeded2.evaluate("Math.random()")  # r3 == r1
     ///     ```
     #[new]
-    #[pyo3(signature = (enable_extensions=true, enable_logging=false, random_seed=None))]
-    fn py_new(enable_extensions: bool, enable_logging: bool, random_seed: Option<u32>) -> PyResult<Self> {
+    #[pyo3(signature = (enable_extensions=true, enable_logging=false, random_seed=None, enable_node_compat=false))]
+    fn py_new(
+        enable_extensions: bool,
+        enable_logging: bool,
+        random_seed: Option<u32>,
+        enable_node_compat: bool,
+    ) -> PyResult<Self> {
         crate::runtime::ensure_v8_initialized();
-        Self::new(enable_extensions, enable_logging, random_seed)
+        Self::new(enable_extensions, enable_logging, random_seed, enable_node_compat)
     }
 
     /// 编译JavaScript代码（便捷方法）
@@ -961,7 +1025,7 @@ impl Context {
     fn take_heap_snapshot(&self, file_path: String) -> PyResult<()> {
         use std::io::Write;
 
-        self.enter_isolate();
+        let _guard = IsolateGuard::new(self);
         let mut runtime = self.runtime.borrow_mut();
         let isolate = runtime.v8_isolate();
 
@@ -979,9 +1043,6 @@ impl Context {
         // 确保所有数据写入磁盘
         writer.flush()
             .map_err(|e| PyException::new_err(format!("Failed to write snapshot: {}", e)))?;
-
-        drop(runtime);
-        self.exit_isolate();
 
         Ok(())
     }

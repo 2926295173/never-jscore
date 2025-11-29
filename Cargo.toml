@@ -1,6 +1,6 @@
 [package]
 name = "never_jscore"
-version = "2.4.4"
+version = "2.5.0"
 edition = "2021"
 authors = ["never_jscore contributors"]
 description = "High-performance Python JavaScript execution engine based on Deno Core (V8) with full Promise/async support"
@@ -13,29 +13,98 @@ categories = ["development-tools"]
 name = "never_jscore"
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["deno_web_api", "node_compat"]
+# 使用 Deno 官方 Web API
+deno_web_api = [
+    "deno_webidl",
+    "dep:deno_web",
+    "dep:deno_crypto",
+    "dep:deno_fetch",
+    "dep:deno_net",
+    "dep:deno_tls",
+    "dep:deno_webstorage",
+    "dep:deno_permissions",
+    "dep:deno_features",
+    "dep:deno_error",
+    "dep:sys_traits",
+    "dep:rustls",
+]
+# Node.js 兼容层 (完整npm生态支持)
+node_compat = [
+    "dep:deno_node",
+    "dep:deno_fs",
+    "dep:deno_io",
+    "dep:deno_os",
+    "dep:deno_process",
+    "dep:node_resolver",
+    "dep:deno_package_json",
+    "dep:deno_maybe_sync",
+    "dep:deno_crypto_provider",
+    "dep:deno_path_util",
+    "dep:url",
+    "dep:thiserror",
+    "dep:boxed_error",
+    "dep:deno_ast",
+]
+
 [dependencies]
-deno_core = "0.367.0"
-anyhow = "1.0.100"
-tokio = { version = "1.48", features = ["rt","time", "macros"] }
-serde_json = "1.0"
+deno_core = "0.371.0"
+
+
+deno_webidl = { path = "G:/deno/ext/webidl", optional = true }
+deno_web = { path = "G:/deno/ext/web", optional = true }
+deno_crypto = { path = "G:/deno/ext/crypto", optional = true }
+deno_fetch = { path = "G:/deno/ext/fetch", optional = true }
+deno_net = { path = "G:/deno/ext/net", optional = true }
+deno_tls = { path = "G:/deno/ext/tls", optional = true }
+deno_webstorage = { path = "G:/deno/ext/webstorage", optional = true }
+deno_permissions = { path = "G:/deno/runtime/permissions", optional = true }
+deno_features = { path = "G:/deno/runtime/features", optional = true }
+deno_error = { version = "0.7.0", optional = true }
+sys_traits = { version = "0.1.17", features = ["libc", "real", "winapi"], optional = true }
+
+# Node.js 兼容层依赖（按 deno 为准）
+deno_node = { path = "G:/deno/ext/node", optional = true }
+deno_fs = { path = "G:/deno/ext/fs", optional = true }
+deno_io = { path = "G:/deno/ext/io", optional = true }
+deno_os = { path = "G:/deno/ext/os", optional = true }
+deno_process = { path = "G:/deno/ext/process", optional = true }
+node_resolver = { path = "G:/deno/libs/node_resolver", optional = true }
+deno_package_json = { path = "G:/deno/libs/package_json", optional = true }
+deno_maybe_sync = { path = "G:/deno/libs/maybe_sync", optional = true }
+deno_crypto_provider = { path = "G:/deno/libs/crypto", optional = true }
+
+# Python bindings
 pyo3 = { version = "0.27.1", features = ["extension-module", "abi3-py38"] }
-# Crypto libraries for JS reverse engineering
-base64 = "0.22"
-md-5 = "0.10"
-sha1 = "0.10"
-sha2 = "0.10"
-hmac = "0.12"
-hex = "0.4"
-rand = "0.8"
 
-# Encoding libraries
-urlencoding = "2.1"
-percent-encoding = "2.3"
+# Core utilities
+anyhow = "1.0.100"
+tokio = { version = "1.48", features = ["rt", "time", "macros"] }
+serde_json = "1.0"
 
-# HTTP client for fetch API
-reqwest = { version = "0.12", features = ["json", "blocking"] }
-
-# Thread-safe static variables
-lazy_static = "1.4"
+# Thread-safe utilities
 once_cell = "1.20"
 
+# Random number generation
+rand = "0.8"
+
+# Rustls for HTTPS support (deno_tls dependency)
+rustls = { version = "0.23", features = ["ring"], optional = true }
+
+# Node.js 兼容层额外依赖
+deno_path_util = { version = "0.6.4", optional = true }
+url = { version = "2.5", optional = true }
+thiserror = { version = "2.0", optional = true }
+boxed_error = { version = "0.2", optional = true }
+deno_ast = { version = "0.50.3", features = ["transpiling"], optional = true }
+
+# Windows系统依赖 (node_compat需要)
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59.0", features = [
+    "Win32_Networking",
+    "Win32_Networking_WinSock",
+    "Win32_NetworkManagement",
+    "Win32_NetworkManagement_Dns",
+    "Win32_System_SystemInformation",
+] }

@@ -3,17 +3,16 @@ mod convert;
 mod ops;
 mod runtime;
 mod storage;
-mod early_return;  // New: Custom error for early return
-mod crypto_ops;
-mod encoding_ops;
-mod timer_ops;
-mod timer_real_ops;  // New: Real async timers
-mod worker_ops;
-mod fs_ops;
-mod fetch_ops;
-mod performance_ops;
-mod random_state;  // New: Seedable RNG state management
-mod random_ops;     // New: Random seed control operations
+mod early_return;
+mod ext;
+mod node_compat;
+mod module_loader;
+
+#[cfg(feature = "deno_web_api")]
+mod permissions;
+
+#[cfg(feature = "node_compat")]
+mod transpile;
 
 use pyo3::prelude::*;
 use std::sync::Once;
@@ -27,6 +26,12 @@ fn ensure_v8_initialized() {
     INIT.call_once(|| {
         // Initialize V8 platform (required before creating any isolates)
         deno_core::JsRuntime::init_platform(None, false);
+
+        // Initialize rustls CryptoProvider for HTTPS support
+        #[cfg(feature = "deno_web_api")]
+        {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+        }
     });
 }
 

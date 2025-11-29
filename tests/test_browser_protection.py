@@ -2,9 +2,32 @@
 测试浏览器环境防检测功能
 
 展示 never-jscore 如何隐藏 Deno 特征并模拟真实浏览器环境
+
+注意: 此测试需要 legacy_polyfill 功能，在 v2.5.0+ 中已移除。
+当前版本使用 deno_web_api 模式，不提供浏览器环境模拟功能。
 """
 
+import sys
+import os
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import never_jscore
+
+
+def check_legacy_mode():
+    """检查是否为 legacy_polyfill 模式"""
+    ctx = never_jscore.Context()
+    result = ctx.evaluate("typeof Deno")
+    if result != "undefined":
+        print("⚠️  跳过测试: 需要 legacy_polyfill 模式（当前为 deno_web_api 模式）")
+        print("    v2.5.0+ 已移除 legacy_polyfill 功能")
+        print("    要使用浏览器保护功能，请使用 v2.4.x 版本")
+        return False
+    return True
 
 
 def test_deno_hidden():
@@ -249,6 +272,13 @@ if __name__ == "__main__":
     print("=" * 60)
     print("测试浏览器环境防检测功能")
     print("=" * 60)
+
+    # 检查是否为 legacy_polyfill 模式
+    if not check_legacy_mode():
+        print("\n" + "=" * 60)
+        print("⚠️  测试已跳过（需要 legacy_polyfill 模式）")
+        print("=" * 60)
+        sys.exit(0)
 
     test_deno_hidden()
     test_browser_globals_exist()

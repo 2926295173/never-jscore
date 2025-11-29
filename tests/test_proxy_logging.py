@@ -2,9 +2,35 @@
 测试 Proxy 日志系统
 
 展示如何使用 $proxy 监控对象属性访问，用于逆向分析
+
+注意: 此测试需要 legacy_polyfill 功能，在 v2.5.0+ 中已移除。
+当前版本使用 deno_web_api 模式，不提供 Proxy logging 功能。
 """
 
+import sys
+import os
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import never_jscore
+
+
+def check_proxy_logging_available():
+    """检查是否支持 Proxy logging"""
+    ctx = never_jscore.Context()
+    try:
+        result = ctx.evaluate("typeof $clearProxyLogs")
+        if result == "undefined":
+            print("⚠️  跳过测试: 需要 legacy_polyfill 模式（当前为 deno_web_api 模式）")
+            print("    v2.5.0+ 已移除 legacy_polyfill 功能")
+            print("    要使用 Proxy logging 功能，请使用 v2.4.x 版本")
+            return False
+        return True
+    except:
+        return False
 
 
 def test_basic_proxy_logging():
@@ -329,6 +355,13 @@ if __name__ == "__main__":
     print("=" * 60)
     print("测试 Proxy 日志系统")
     print("=" * 60)
+
+    # 检查是否支持 Proxy logging
+    if not check_proxy_logging_available():
+        print("\n" + "=" * 60)
+        print("⚠️  测试已跳过（需要 legacy_polyfill 模式）")
+        print("=" * 60)
+        sys.exit(0)
 
     test_basic_proxy_logging()
     test_proxy_filter_logs()

@@ -1,15 +1,11 @@
 // src/ops/mod.rs
-// 统一管理所有 ops 模块
+// Legacy ops module - kept for backward compatibility
+//
+// Note: Core operations have been moved to the modular extension system in src/ext/
+// This module is kept to maintain backward compatibility with existing code.
+//
+// New code should use the extension system directly via src/ext/core and src/ext/hook
 
-pub mod storage_ops;      // 结果存储
-pub mod crypto;           // 加密相关
-pub mod encoding;         // 编码相关
-pub mod filesystem;       // 文件系统
-pub mod http;             // HTTP 请求
-pub mod timer;            // 定时器
-pub mod worker;           // Worker API
-pub mod web_storage;      // localStorage/sessionStorage (新增)
-pub mod browser_env;      // 浏览器环境对象 (新增)
-
-// 重新导出常用类型
+// Re-export storage_ops for backward compatibility
+pub mod storage_ops;
 pub use storage_ops::*;

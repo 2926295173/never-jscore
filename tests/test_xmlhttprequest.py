@@ -2,9 +2,30 @@
 测试 XMLHttpRequest 使用
 
 展示如何使用内置的 XMLHttpRequest API
+
+注意: 此测试需要 legacy_polyfill 功能，在 v2.5.0+ 中已移除。
+当前版本使用 deno_web_api 模式，XMLHttpRequest 不可用（建议使用 fetch）。
 """
 
+import sys
+import os
+
 import never_jscore
+
+
+def check_xhr_available():
+    """检查是否支持 XMLHttpRequest"""
+    ctx = never_jscore.Context()
+    try:
+        result = ctx.evaluate("typeof XMLHttpRequest")
+        if result == "undefined":
+            print("⚠️  跳过测试: XMLHttpRequest 需要 legacy_polyfill 模式")
+            print("    v2.5.0+ 已移除 legacy_polyfill 功能")
+            print("    建议使用 fetch API 替代（参见 test_deno_web_api.py）")
+            return False
+        return True
+    except:
+        return False
 
 
 def test_basic_xhr():
@@ -451,6 +472,13 @@ if __name__ == "__main__":
     print("=" * 60)
     print("测试 XMLHttpRequest")
     print("=" * 60)
+
+    # 检查是否支持 XMLHttpRequest
+    if not check_xhr_available():
+        print("\n" + "=" * 60)
+        print("⚠️  测试已跳过（XMLHttpRequest 需要 legacy_polyfill）")
+        print("=" * 60)
+        sys.exit(0)
 
     test_basic_xhr()
     test_xhr_open()

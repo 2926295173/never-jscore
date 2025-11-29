@@ -4,6 +4,14 @@
 展示如何在多线程环境中安全使用 never-jscore
 """
 
+import sys
+import os
+
+# Set UTF-8 encoding for Windows console
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import never_jscore
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -81,8 +89,17 @@ def test_threadlocal_context():
         if not hasattr(thread_local, 'ctx'):
             thread_local.ctx = never_jscore.Context()
             thread_local.ctx.compile("""
+                function simpleHash(str) {
+                    let hash = 0;
+                    for (let i = 0; i < str.length; i++) {
+                        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                        hash = hash & hash;
+                    }
+                    return Math.abs(hash).toString(16).padStart(8, '0');
+                }
+
                 function hash(data) {
-                    return md5(String(data));
+                    return simpleHash(String(data));
                 }
             """)
         return thread_local.ctx
@@ -202,9 +219,18 @@ def test_concurrent_encryption():
     def encrypt_data(data):
         ctx = never_jscore.Context()
         ctx.compile("""
+            function simpleHash(str) {
+                let hash = 0;
+                for (let i = 0; i < str.length; i++) {
+                    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                    hash = hash & hash;
+                }
+                return Math.abs(hash).toString(16).padStart(8, '0');
+            }
+
             function secureEncrypt(obj) {
                 const json = JSON.stringify(obj);
-                const hash = sha256(json);
+                const hash = simpleHash(json);
                 const encrypted = btoa(json + ':' + hash);
                 return {
                     data: encrypted,
@@ -241,8 +267,17 @@ def test_thread_pool_with_reused_contexts():
         if not hasattr(thread_local, 'ctx'):
             thread_local.ctx = never_jscore.Context()
             thread_local.ctx.compile("""
+                function simpleHash(str) {
+                    let hash = 0;
+                    for (let i = 0; i < str.length; i++) {
+                        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                        hash = hash & hash;
+                    }
+                    return Math.abs(hash).toString(16).padStart(8, '0');
+                }
+
                 function sign(data, secret) {
-                    return md5(data + secret);
+                    return simpleHash(data + secret);
                 }
             """)
         return thread_local.ctx

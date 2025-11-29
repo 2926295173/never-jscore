@@ -9,7 +9,7 @@
 **警告**：仅供技术研究和学习，请勿用于违法用途，后果自负。
 
 - **技术交流群**：加微信 xu970821582
-- 提醒: 基于pyo3库的更新迭代情况,个人推荐使用python3.14版本来使用此库,可能会避免很多奇怪的报错
+- **提醒: 基于pyo3库的更新迭代情况,个人推荐使用 python3.14 版本来使用此库,可能会避免很多奇怪的报错**
 
 ---
 
@@ -22,7 +22,8 @@
 | **Promise/async** | ✅ 完整支持 | ❌ 不支持 | ❌ 不支持 |
 | **Hook 拦截** | ✅ 双模式：`$return()` + `$terminate()` | ❌ | ❌ |
 | **确定性随机数** | ✅ 种子控制 | ❌ | ❌ |
-| **Web API** | ✅ 完整（require/fetch/localStorage） | ❌ | ❌ |
+| **Web API** | ✅ 完整（fetch/URL/crypto/Blob） | ❌ | ❌ |
+| **Node.js 兼容** | ✅ require/npm 包 | ❌ | ⚠️ 部分 |
 | **性能（1000次调用）** | **11ms** 🏆 | 38ms | 69473ms |
 | **上下文隔离** | ✅ 独立 V8 Isolate | ✅ | ⚠️ 进程隔离 |
 | **类型提示** | ✅ .pyi 文件 | ⚠️ 部分 | ❌ |
@@ -33,7 +34,8 @@
   - `$return()` - 快速拦截，适合简单场景
   - `$terminate()` - **V8 强制终止，无法被 try-catch 捕获**（v2.4.3+ 新增）
 - 🎲 **确定性调试**：固定随机数种子，轻松调试动态加密算法
-- 🌐 **零配置补环境**：内置 800+ 行 polyfill，自动模拟浏览器/Node.js 环境
+- 🌐 **完整 Web API**：官方 Deno Web API 支持（fetch, URL, crypto 等）
+- 📦 **Node.js 兼容**：`require()` 和 npm 包支持，可加载 jsdom 等
 - ⚡ **极致性能**：Rust + V8 直接绑定，比 PyExecJS 快 100-300 倍
 - 🔄 **现代 JS 支持**：完整的 Promise、async/await、fetch、localStorage
 
@@ -48,6 +50,115 @@
 | 数组操作 | **0.004ms** 🏆 | 0.006ms | 2.3ms |
 | 复杂算法(1000次) | **0.0111s** 🏆 | 0.0383s | 69.4735s |
 | Promise | **✅ 0.003ms** | ❌ 不支持 | ❌ 不支持 |
+
+---
+
+```python
+import never_jscore
+
+# API 完全兼容，无需修改代码
+ctx = never_jscore.Context()
+
+# 使用Web API
+url = ctx.evaluate("new URL('https://example.com/path').href")
+print(url)  # https://example.com/path
+
+# TextEncoder/TextDecoder
+encoded = ctx.evaluate("""
+    const encoder = new TextEncoder();
+    Array.from(encoder.encode('Hello'))
+""")
+print(encoded)  # [72, 101, 108, 108, 111]
+
+# ReadableStream
+result = ctx.evaluate("""
+    const stream = new ReadableStream({
+        start(controller) {
+            controller.enqueue('chunk1');
+            controller.enqueue('chunk2');
+            controller.close();
+        }
+    });
+    const reader = stream.getReader();
+    async function read() {
+        const chunks = [];
+        while (true) {
+            const {done, value} = await reader.read();
+            if (done) break;
+            chunks.push(value);
+        }
+        return chunks;
+    }
+    read()
+""")
+print(result)  # ['chunk1', 'chunk2']
+```
+
+**支持的 Web API：**
+- ✅ URL / URLSearchParams / URLPattern
+- ✅ TextEncoder / TextDecoder / TextEncoderStream / TextDecoderStream
+- ✅ atob / btoa (Base64)
+- ✅ console (log/info/warn/error/debug)
+- ✅ Event / EventTarget / CustomEvent
+- ✅ structuredClone
+- ✅ AbortController / AbortSignal
+- ✅ crypto.randomUUID() / crypto.getRandomValues()
+- ✅ setTimeout / setInterval / clearTimeout / clearInterval
+- ✅ performance.now() / mark / measure
+- ✅ ReadableStream / WritableStream / TransformStream
+
+详见：[Deno Web API 测试结果](docs/DENO_WEB_API_TEST_RESULTS.md)
+
+### 🆕 Node.js 兼容模式 (v2.5.0+)
+
+通过 `enable_node_compat=True` 启用完整的 Node.js 兼容层，支持 `require()` 和 npm 包！
+
+```python
+import never_jscore
+
+# 启用 Node.js 兼容模式
+ctx = never_jscore.Context(enable_node_compat=True)
+
+# 使用 Node.js 内置模块
+result = ctx.evaluate("""
+    const path = require('path');
+    const crypto = require('crypto');
+
+    ({
+        joined: path.join('a', 'b', 'c'),
+        hash: crypto.createHash('md5').update('hello').digest('hex')
+    })
+""")
+print(result)
+# {'joined': 'a\\b\\c', 'hash': '5d41402abc4b2a76b9719d911017c592'}
+
+# 加载 npm 包（如 jsdom）
+ctx2 = never_jscore.Context(enable_node_compat=True)
+result = ctx2.evaluate("""
+    const { JSDOM } = require('jsdom');
+    const dom = new JSDOM('<html><body><h1>Hello World</h1></body></html>');
+    const document = dom.window.document;
+
+    ({
+        tagName: document.querySelector('h1').tagName,
+        textContent: document.querySelector('h1').textContent
+    })
+""")
+print(result)
+# {'tagName': 'H1', 'textContent': 'Hello World'}
+```
+
+**支持的功能**：
+- ✅ `require()` 函数
+- ✅ Node.js 内置模块 (path, fs, crypto, buffer, stream, etc.)
+- ✅ npm 包加载 (jsdom, lodash, 等)
+- ✅ `__dirname` / `__filename`
+- ✅ `process.env` / `process.cwd()`
+- ✅ `Buffer` 全局对象
+
+**注意**：
+- 需要在项目目录下有 `node_modules` 文件夹
+- 使用前先运行 `npm install` 安装所需的包
 
 ---
 
@@ -120,11 +231,13 @@ print(result)  # 25
 
 ## 高级功能
 
-### 🎣 Hook 拦截：提取加密数据
+### 🎣 Hook 拦截：提取加密数据（基于新扩展架构）
 
-在 JS 逆向中，经常需要拦截某个函数的调用并提取参数或返回值。never_jscore 提供**两种 Hook 模式**：
+在 JS 逆向中，经常需要拦截某个函数的调用并提取参数或返回值。never_jscore v2.5.0 采用**全新的模块化扩展架构**，提供**两种 Hook 模式**：
 
 #### 模式 1: `$return()` - 快速拦截（可被 try-catch 捕获）
+
+**来自**: Core Extension (`src/ext/core/`)
 
 ```python
 ctx = never_jscore.Context()
@@ -149,8 +262,9 @@ encrypted_data = ctx.evaluate("""
 print(f"拦截到的加密数据: {encrypted_data['encrypted']}")
 ```
 
-#### 模式 2: `$terminate()` - 强制终止（**无法被 try-catch 捕获** ⭐ v2.4.3+ 新增）
+#### 模式 2: `$terminate()` - 强制终止（**无法被 try-catch 捕获** ⭐ v2.5.0 增强）
 
+**来自**: Hook Extension (`src/ext/hook/`)
 **关键特性：** 使用 V8 `terminate_execution()`，绕过所有 try-catch 防护！
 
 ```python
@@ -208,8 +322,8 @@ if hook_data:
 | 多次执行 | ✅ 可复用 Context | ⚠️ 建议清理后复用 |
 
 **Hook API 总览**：
-- **模式 1：** `$return(value)`, `$exit(value)`, `__neverjscore_return__(value)`
-- **模式 2：** `$terminate(value)`, `__saveAndTerminate__(value)` ⭐ 新增
+- **模式 1 (Core Extension)：** `$return(value)`, `$exit(value)`, `__neverjscore_return__(value)`
+- **模式 2 (Hook Extension)：** `$terminate(value)`, `__saveAndTerminate__(value)` ⭐ 架构增强
 
 **典型应用场景**：
 - ✅ 拦截网络请求的加密参数
@@ -1053,6 +1167,45 @@ print(f"数据: {result['data']}")
 ---
 
 ## 更新日志
+
+### v2.5.0 (2025-11-30) 🎉 重大更新
+
+- 🏗️ **全新模块化扩展架构** (参考 [rustyscript](https://github.com/rscarson/rustyscript))
+  - **Core Extension** (`src/ext/core/`): 核心功能 (`$return`, `$exit`, `$storeResult`)
+  - **Hook Extension** (`src/ext/hook/`): Hook 拦截 (`$terminate`, `__saveAndTerminate__`)
+  - 完整集成 Deno 的 Node.js 兼容层，支持 require() 和 npm 包加载。
+  - 统一的 `ExtensionTrait` 接口，易于维护和扩展
+  - 支持的功能：
+  - ✅ require() 函数
+  - ✅ Node.js 内置模块 (path, fs, crypto, buffer, stream, url, util, events 等)
+  - ✅ npm 包加载 (jsdom, lodash, crypto-js 等)
+  - ✅ __dirname / __filename
+  - ✅ process.env / process.cwd()
+  - ✅ Buffer 全局对象
+  - ✅ package.json exports 字段解析（含子路径）
+
+
+- 🛡️ **API 保护增强** (`src/ext/api_protection.js`)
+  - 新增 10+ 反检测工具函数
+  - `makeNative()` - 函数显示为原生代码
+  - `protectConstructor()` - 保护构造函数及原型
+  - `hideDeno()` - 隐藏 Deno 特征
+  - `createNativeProxy()` - 创建原生外观代理
+  - `deepProtect()` - 深度对象保护
+  - `cleanStack()` - 清理错误堆栈
+  - `hideProperty()` / `freezeProperty()` - 属性操作工具
+
+- 📚 **完整文档**
+  - `docs/NEW_EXTENSION_ARCHITECTURE.md` - 新架构完整说明
+  - 包含实战示例、API 对比、使用场景等
+
+- ✅ **完整测试覆盖**
+  - 新增 `tests/test_new_extension_system.py`
+  - 6/6 测试全部通过（Core Extension, Hook Extension, API Protection）
+
+- 🔄 **向后兼容**
+  - 所有现有 API 完全兼容
+  - 自动加载扩展，无需代码修改
 
 ### v2.4.3 (2025-01-XX) ⭐ 新增
 

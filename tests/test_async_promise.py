@@ -312,6 +312,18 @@ def test_real_world_async_encryption():
     ctx = never_jscore.Context()
 
     ctx.compile("""
+        // 简单的哈希函数（用于测试）
+        function simpleHash(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                const char = str.charCodeAt(i);
+                hash = ((hash << 5) - hash) + char;
+                hash = hash & hash;
+            }
+            // 转换为32位十六进制字符串
+            return Math.abs(hash).toString(16).padStart(8, '0').repeat(4).substring(0, 32);
+        }
+
         // 模拟异步密钥获取
         async function fetchEncryptionKey() {
             await new Promise(r => setTimeout(r, 30));
@@ -328,7 +340,7 @@ def test_real_world_async_encryption():
         // 模拟异步签名
         async function signData(encrypted) {
             await new Promise(r => setTimeout(r, 30));
-            return md5(encrypted);
+            return simpleHash(encrypted);
         }
 
         // 完整的异步处理流程
@@ -349,7 +361,7 @@ def test_real_world_async_encryption():
 
     assert 'encrypted' in result
     assert 'signature' in result
-    assert len(result['signature']) == 32  # MD5 长度
+    assert len(result['signature']) == 32  # Hash 长度
 
     print(f"\n=== 实战：异步加密流程 ===")
     print(f"[OK] 加密结果: {result['encrypted'][:40]}...")

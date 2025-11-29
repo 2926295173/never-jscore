@@ -20,43 +20,59 @@ class Context:
     - 推荐使用单 Context 模式，将所有函数定义在一个 Context 中
 
     🆕 扩展功能 (enable_extensions=True 时自动加载):
-    - Base64: btoa(), atob()
-    - 哈希: md5(), sha1(), sha256(), sha512()
-    - HMAC: CryptoUtils.hmacMd5(), hmacSha1(), hmacSha256()
-    - URL 编码: encodeURIComponent(), decodeURIComponent(), encodeURI(), decodeURI()
-    - Hex: CryptoUtils.hexEncode(), hexDecode()
-    - 链式 API: CryptoUtils.createHash(), createHmac()
+    - Web APIs: fetch, URL, TextEncoder/Decoder, crypto, Blob, FormData
+    - 定时器: setTimeout, setInterval, clearTimeout, clearInterval
+    - 存储: localStorage, sessionStorage
+    - 事件: AbortController, Event, EventTarget
+    - 流: ReadableStream, WritableStream, TransformStream
+
+    🆕 Node.js 兼容 (enable_node_compat=True 时启用):
+    - require() 函数加载 npm 包
+    - Node.js 内置模块: path, fs, crypto, buffer, etc.
+    - 支持 jsdom 等复杂 npm 包
 
     Example:
-        >>> # 基本用法（默认启用扩展）
+        >>> # 基本用法（默认启用 Web API 扩展）
         >>> ctx = Context()
         >>> ctx.compile("function add(a, b) { return a + b; }")
         >>> result = ctx.call("add", [1, 2])
         >>> print(result)
         3
 
-        >>> # 使用扩展功能
+        >>> # 使用 Web API
         >>> ctx = Context()
         >>> result = ctx.evaluate("btoa('hello')")
         >>> print(result)
         aGVsbG8=
 
-        >>> result = ctx.evaluate("md5('hello')")
+        >>> # 使用 Node.js 兼容模式加载 npm 包
+        >>> ctx = Context(enable_node_compat=True)
+        >>> result = ctx.evaluate('''
+        ...     const { JSDOM } = require('jsdom');
+        ...     const dom = new JSDOM('<h1>Hello</h1>');
+        ...     dom.window.document.querySelector('h1').textContent
+        ... ''')
         >>> print(result)
-        5d41402abc4b2a76b9719d911017c592
+        Hello
 
         >>> # 纯净 V8 环境（不加载扩展）
         >>> ctx = Context(enable_extensions=False)
         >>> # 只有 ECMAScript 标准 API
     """
 
-    def __init__(self, enable_extensions: bool = True, enable_logging: bool = False, random_seed: Optional[int] = None) -> None:
+    def __init__(
+        self,
+        enable_extensions: bool = True,
+        enable_logging: bool = False,
+        random_seed: Optional[int] = None,
+        enable_node_compat: bool = False  # Default False - only enable when you need require()
+    ) -> None:
         """
         创建一个新的 JavaScript 执行上下文
 
         Args:
-            enable_extensions: 是否启用扩展（crypto, encoding 等），默认 True
-                             - True: 自动加载 btoa/atob/md5/sha256 等函数
+            enable_extensions: 是否启用 Web API 扩展，默认 True
+                             - True: 加载 Deno Web API（fetch, URL, crypto 等）
                              - False: 纯净 V8 环境，只包含 ECMAScript 标准 API
             enable_logging: 是否启用操作日志输出，默认 False
                            - True: 输出所有扩展操作的日志（用于调试）
@@ -66,6 +82,10 @@ class Context:
                         - int: 使用固定种子（确定性）
                           所有随机数 API（Math.random、crypto.getRandomValues 等）
                           将基于此种子生成，方便调试和算法对比
+            enable_node_compat: 是否启用 Node.js 兼容模式，默认 False
+                               - True: 启用 require() 和 Node.js 内置模块
+                                 可以加载 npm 包如 jsdom、lodash 等
+                               - False: 不加载 Node.js 兼容层
 
         Example:
             >>> # 使用固定随机数种子
@@ -76,6 +96,11 @@ class Context:
             >>> # 另一个相同种子的上下文将产生相同的随机数序列
             >>> ctx2 = Context(random_seed=12345)
             >>> r3 = ctx2.evaluate("Math.random()")  # r3 == r1
+
+            >>> # 使用 Node.js 兼容模式
+            >>> ctx = Context(enable_node_compat=True)
+            >>> ctx.evaluate("const path = require('path'); path.join('a', 'b')")
+            'a/b'
         """
         ...
 
@@ -349,7 +374,7 @@ class Context:
 JSValue = Union[None, bool, int, float, str, List[Any], dict[str, Any]]
 """JavaScript 值的 Python 类型表示"""
 
-__version__: str = "2.4.2"
+__version__: str = "2.5.0"
 """模块版本号"""
 
 __all__ = [
